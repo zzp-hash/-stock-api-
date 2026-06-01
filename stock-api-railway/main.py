@@ -15,8 +15,8 @@ def home():
         <style>
             body {
                 font-family: Arial, sans-serif;
-                max-width: 760px;
-                margin: 60px auto;
+                max-width: 820px;
+                margin: 50px auto;
                 padding: 20px;
                 background: #f5f6f8;
             }
@@ -48,18 +48,22 @@ def home():
                 border-radius: 12px;
                 margin-top: 16px;
             }
-            .buy {
-                border-left: 5px solid #16a34a;
-            }
-            .sell {
-                border-left: 5px solid #dc2626;
-            }
-            .hold {
-                border-left: 5px solid #f59e0b;
-            }
+            .buy { border-left: 5px solid #16a34a; }
+            .sell { border-left: 5px solid #dc2626; }
+            .signal { border-left: 5px solid #f59e0b; }
+            .summary { border-left: 5px solid #2563eb; }
             .small {
                 color: #666;
                 font-size: 14px;
+                margin-top: 25px;
+            }
+            .tag {
+                display: inline-block;
+                padding: 6px 10px;
+                background: #eef2ff;
+                border-radius: 999px;
+                margin-right: 8px;
+                margin-top: 6px;
             }
         </style>
     </head>
@@ -101,30 +105,37 @@ def home():
                     <h2>${data.name} ${data.code}</h2>
                     <p><b>当前价格：</b>${data.current}</p>
                     <p><b>今日涨跌：</b>${data.change} (${data.change_pct}%)</p>
+                    <p><b>开盘价：</b>${data.open}　<b>昨收：</b>${data.prev_close}</p>
                     <p><b>今日最高：</b>${data.high}　<b>今日最低：</b>${data.low}</p>
+
+                    <div>
+                        <span class="tag">趋势：${data.intraday_trend}</span>
+                        <span class="tag">波动：${data.volatility}</span>
+                        <span class="tag">风险：${data.risk}</span>
+                    </div>
 
                     <div class="box buy">
                         <h3>买点判断</h3>
                         <p><b>支撑位：</b>${data.support}</p>
-                        <p><b>距离支撑位：</b>${data.distance_to_support}%</p>
+                        <p><b>理想买入区间：</b>${data.buy_zone}</p>
+                        <p><b>止损位：</b>${data.stop_loss}</p>
                         <p>${data.buy_advice}</p>
                     </div>
 
                     <div class="box sell">
                         <h3>卖点判断</h3>
                         <p><b>压力位：</b>${data.resistance}</p>
-                        <p><b>距离压力位：</b>${data.distance_to_resistance}%</p>
+                        <p><b>止盈参考位：</b>${data.take_profit}</p>
                         <p>${data.sell_advice}</p>
                     </div>
 
-                    <div class="box hold">
+                    <div class="box signal">
                         <h3>操作信号</h3>
                         <h2>${data.signal}</h2>
                         <p><b>趋势评分：</b>${data.score}/10</p>
-                        <p><b>风险等级：</b>${data.risk}</p>
                     </div>
 
-                    <div class="box">
+                    <div class="box summary">
                         <h3>AI总结</h3>
                         <p>${data.summary}</p>
                     </div>
@@ -159,99 +170,106 @@ def trade():
         data = fetch_sina(code)
 
         current = data["current"]
-        high = data["high"]
-        low = data["low"]
         open_p = data["open"]
         prev_close = data["prev_close"]
+        high = data["high"]
+        low = data["low"]
 
-        support = low
-        resistance = high
+        support = round(low, 2)
+        resistance = round(high, 2)
 
+        buy_low = round(support, 2)
+        buy_high = round(support * 1.01, 2)
+        buy_zone = f"{buy_low} - {buy_high}"
+
+        stop_loss = round(support * 0.98, 2)
+        take_profit = round(resistance * 0.995, 2)
+
+        day_range_pct = round((high - low) / prev_close * 100, 2) if prev_close else 0
         distance_to_support = round((current - support) / current * 100, 2) if current else 0
         distance_to_resistance = round((resistance - current) / current * 100, 2) if current else 0
 
         score = 5.0
-        reasons = []
 
         if current > open_p:
             score += 1
-            reasons.append("当前价格高于开盘价，日内走势偏强")
+            intraday_trend = "日内偏强"
         else:
             score -= 0.5
-            reasons.append("当前价格低于开盘价，日内走势偏弱")
+            intraday_trend = "日内偏弱"
 
         if data["change_pct"] > 1:
             score += 1
-            reasons.append("今日涨幅超过1%，市场情绪偏积极")
         elif data["change_pct"] < -1:
             score -= 1
-            reasons.append("今日跌幅超过1%，短期情绪偏谨慎")
-        else:
-            reasons.append("今日涨跌幅较小，处于震荡区间")
 
         if distance_to_support <= 1:
             score += 1
-            buy_advice = "当前价格接近今日支撑位，可重点观察是否企稳。若成交量配合，可考虑小仓位分批试探。"
+            buy_advice = "当前价格接近支撑位，若出现企稳或放量反弹，可考虑小仓位分批试探。"
         elif distance_to_support <= 3:
-            score += 0.5
-            buy_advice = "当前价格距离支撑位不远，适合继续等待回踩，不建议追高。"
+            score += 0.3
+            buy_advice = "当前价格距离支撑位不远，适合等待回踩确认，不建议直接追高。"
         else:
             score -= 0.5
-            buy_advice = "当前价格距离支撑位较远，追高风险较大，建议等待更好的回调位置。"
+            buy_advice = "当前价格距离支撑位较远，短线追高风险较大，建议等待更好的回调位置。"
 
         if distance_to_resistance <= 1:
             score -= 0.5
-            sell_advice = "当前价格接近今日压力位，短线可考虑分批减仓或止盈观察。"
+            sell_advice = "当前价格接近压力位，短线可考虑分批止盈或减仓观察。"
         elif distance_to_resistance <= 3:
             sell_advice = "当前价格距离压力位较近，继续上攻需要成交量配合。"
         else:
-            sell_advice = "当前价格距离压力位较远，短线仍有一定上行空间，但需结合大盘情绪。"
-
-        day_range_pct = round((high - low) / prev_close * 100, 2) if prev_close else 0
+            sell_advice = "当前价格距离压力位仍有空间，若趋势延续，可继续观察上攻力度。"
 
         if day_range_pct > 4:
-            score -= 1
             risk = "中-高"
-            reasons.append("日内波动较大，短线风险上升")
+            volatility = "波动较大"
+            score -= 1
         elif day_range_pct > 2:
             risk = "中"
-            reasons.append("日内波动中等")
+            volatility = "波动中等"
         else:
-            score += 0.5
             risk = "低-中"
-            reasons.append("日内波动相对可控")
+            volatility = "波动较小"
+            score += 0.5
 
         score = max(1, min(10, round(score, 1)))
 
         if score >= 7:
             signal = "观望偏买入"
-            summary = f"{data['name']}当前价格接近支撑位且走势相对稳定，短线可关注企稳信号。若后续放量反弹，可考虑分批买入；若跌破支撑位，则应谨慎。"
+            summary = f"{data['name']}当前走势相对较强，价格与支撑位的关系较好。短线可关注是否在{support}附近企稳，若放量反弹，可考虑分批布局；若跌破{stop_loss}附近，则应控制风险。"
         elif score >= 5:
             signal = "观望"
-            summary = f"{data['name']}目前处于震荡状态，买点和卖点都不算特别明确。建议继续观察支撑位{support}和压力位{resistance}附近的价格表现。"
+            summary = f"{data['name']}目前处于震荡状态，买点和卖点都不算特别明确。建议重点观察支撑位{support}和压力位{resistance}，等待方向进一步确认。"
         else:
             signal = "谨慎观望"
-            summary = f"{data['name']}短期走势偏弱或波动较大，目前不适合盲目买入。建议等待价格回到支撑位附近并出现企稳信号后再考虑。"
+            summary = f"{data['name']}短期表现偏弱或波动较大，目前不适合盲目买入。建议等待价格回到支撑位附近并出现企稳信号后再考虑。"
 
         return jsonify({
             "code": data["code"],
             "name": data["name"],
             "current": current,
+            "open": open_p,
+            "prev_close": prev_close,
             "change": data["change"],
             "change_pct": data["change_pct"],
             "high": high,
             "low": low,
             "support": support,
             "resistance": resistance,
+            "buy_zone": buy_zone,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
             "distance_to_support": distance_to_support,
             "distance_to_resistance": distance_to_resistance,
-            "buy_advice": buy_advice,
-            "sell_advice": sell_advice,
+            "intraday_trend": intraday_trend,
+            "volatility": volatility,
             "signal": signal,
             "score": score,
             "risk": risk,
-            "summary": summary,
-            "reasons": reasons
+            "buy_advice": buy_advice,
+            "sell_advice": sell_advice,
+            "summary": summary
         })
 
     except Exception as e:

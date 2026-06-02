@@ -3,6 +3,7 @@ import urllib.request
 import urllib.parse
 import json
 import os
+import ssl
 
 app = Flask(__name__)
 
@@ -66,6 +67,7 @@ def home():
                     <h2>${data.name} ${data.code}</h2>
                     <p><b>当前价格：</b>${data.current}</p>
                     <p><b>今日涨跌：</b>${data.change} (${data.change_pct}%)</p>
+                    <p><b>数据来源：</b>${data.source}</p>
 
                     <div>
                         <span class="tag">趋势：${data.trend_level}</span>
@@ -77,9 +79,9 @@ def home():
                         <h3>均线与MACD分析</h3>
                         <p><b>MA20：</b>${data.ma20}</p>
                         <p><b>MA60：</b>${data.ma60}</p>
-                        <p><b>MACD：</b>${data.macd}</p>
                         <p><b>DIF：</b>${data.dif}</p>
                         <p><b>DEA：</b>${data.dea}</p>
+                        <p><b>MACD：</b>${data.macd}</p>
                         <p>${data.tech_analysis}</p>
                     </div>
 
@@ -124,19 +126,36 @@ def analyze():
         return jsonify({"error": "请提供股票代码"}), 400
 
     try:
-        quote = fetch_sina(code)
         hist = fetch_eastmoney_hist(code)
 
         if len(hist) < 60:
             return jsonify({"error": "历史K线数据不足，无法计算MA60"}), 400
 
+        quote = None
+        try:
+            quote = fetch_sina(code)
+        except Exception:
+            quote = None
+
+        latest = hist[-1]
+        prev = hist[-2]
+
+        if quote and quote.get("current", 0) > 0:
+            name = quote["name"]
+            current = quote["current"]
+            change = quote["change"]
+            change_pct = quote["change_pct"]
+            source = "新浪实时行情"
+        else:
+            name = code
+            current = latest["close"]
+            change = round(current - prev["close"], 2)
+            change_pct = round((current - prev["close"]) / prev["close"] * 100, 2)
+            source = "东方财富K线兜底"
+
         closes = [x["close"] for x in hist]
         highs = [x["high"] for x in hist[-20:]]
         lows = [x["low"] for x in hist[-20:]]
-
-        current = quote["current"]
-        if current <= 0:
-            current = closes[-1]
 
         ma20 = round(sum(closes[-20:]) / 20, 2)
         ma60 = round(sum(closes[-60:]) / 60, 2)
@@ -215,7 +234,7 @@ def analyze():
         tech_analysis = "；".join(tech_notes) + "。"
 
         summary = (
-            f"{quote['name']}当前趋势为{trend_level}，趋势评分为{score}/10。"
+            f"{name}当前趋势为{trend_level}，趋势评分为{score}/10。"
             f"当前价格为{current}，MA20为{ma20}，MA60为{ma60}。"
             f"{tech_analysis}"
             f"支撑位约为{support}，压力位约为{resistance}。"
@@ -224,10 +243,11 @@ def analyze():
 
         return jsonify({
             "code": code,
-            "name": quote["name"],
+            "name": name,
             "current": current,
-            "change": quote["change"],
-            "change_pct": quote["change_pct"],
+            "change": change,
+            "change_pct": change_pct,
+            "source": source,
             "ma20": ma20,
             "ma60": ma60,
             "dif": round(dif, 3),
@@ -257,6 +277,7 @@ def quote():
     code = request.args.get("code", "").strip()
     if not code:
         return jsonify({"error": "请提供股票代码"}), 400
+
     try:
         return jsonify(fetch_sina(code))
     except Exception as e:
@@ -287,14 +308,11 @@ def fetch_sina(code):
     fields = inner.split(",")
 
     name = fields[0]
-    open_p = float(fields[1])
     prev_close = float(fields[2])
     current = float(fields[3])
-    high = float(fields[4])
-    low = float(fields[5])
 
     if current <= 0:
-        current = prev_close
+        raise ValueError("实时价格无效")
 
     change = round(current - prev_close, 2)
     change_pct = round((current - prev_close) / prev_close * 100, 2) if prev_close else 0
@@ -304,10 +322,7 @@ def fetch_sina(code):
         "symbol": symbol,
         "name": name,
         "current": current,
-        "open": open_p,
         "prev_close": prev_close,
-        "high": high,
-        "low": low,
         "change": change,
         "change_pct": change_pct
     }
@@ -330,14 +345,22 @@ def fetch_eastmoney_hist(code):
     url = "https://push2his.eastmoney.com/api/qt/stock/kline/get?" + urllib.parse.urlencode(params)
 
     req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://quote.eastmoney.com/"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://quote.eastmoney.com/",
+        "Accept": "application/json",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Connection": "keep-alive"
     })
 
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     klines = data.get("data", {}).get("klines", [])
+
     if not klines:
         raise ValueError("未获取到历史K线数据")
 
@@ -358,8 +381,10 @@ def fetch_eastmoney_hist(code):
 def ema(values, period):
     k = 2 / (period + 1)
     ema_values = [values[0]]
+
     for price in values[1:]:
         ema_values.append(price * k + ema_values[-1] * (1 - k))
+
     return ema_values
 
 
@@ -368,9 +393,11 @@ def calc_macd(closes):
     ema26 = ema(closes, 26)
     dif_list = [a - b for a, b in zip(ema12, ema26)]
     dea_list = ema(dif_list, 9)
+
     dif = dif_list[-1]
     dea = dea_list[-1]
     macd = (dif - dea) * 2
+
     return dif, dea, macd
 
 

@@ -160,9 +160,9 @@ def analyze():
             score -= 1;   tech_notes.append("✗ 价格低于MA60，中期偏弱")
 
         if ma20 > ma60:
-            score += 1;   tech_notes.append("✓ MA20>MA60，均线多头排列")
+            score += 1;   tech_notes.append("✓ MA20高于MA60，均线多头排列")
         else:
-            score -= 1;   tech_notes.append("✗ MA20<MA60，均线空头排列")
+            score -= 1;   tech_notes.append("✗ MA20低于MA60，均线空头排列")
 
         if dif > dea and macd_val > 0:
             score += 1;   tech_notes.append("✓ MACD金叉偏强，动能较好")

@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 import urllib.request
 import os
+import yfinance as yf
 
 app = Flask(__name__)
 
@@ -168,6 +169,7 @@ def trade():
 
     try:
         data = fetch_sina(code)
+        ma_data = get_ma_data(code)
 
         current = data["current"]
         open_p = data["open"]
@@ -262,6 +264,8 @@ def trade():
             "code": data["code"],
             "name": data["name"],
             "current": current,
+            "ma20": ma_data["ma20"] if ma_data else None,
+            "ma60": ma_data["ma60"] if ma_data else None,
             "open": open_p,
             "prev_close": prev_close,
             "change": data["change"],
@@ -289,6 +293,30 @@ def trade():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+        def get_ma_data(code):
+    try:
+        ticker = code + ".SS" if code.startswith("6") else code + ".SZ"
+
+        df = yf.download(
+            ticker,
+            period="6mo",
+            progress=False,
+            auto_adjust=True
+        )
+
+        if len(df) < 60:
+            return None
+
+        ma20 = round(df["Close"].rolling(20).mean().iloc[-1], 2)
+        ma60 = round(df["Close"].rolling(60).mean().iloc[-1], 2)
+
+        return {
+            "ma20": ma20,
+            "ma60": ma60
+        }
+
+    except Exception:
+        return None
 def fetch_sina(code):
     if code.startswith("6"):
         symbol = "sh" + code

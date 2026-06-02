@@ -174,76 +174,89 @@ def trade():
         prev_close = data["prev_close"]
         high = data["high"]
         low = data["low"]
+        change_pct = data["change_pct"]
 
         support = round(low, 2)
         resistance = round(high, 2)
-
-        buy_low = round(support, 2)
-        buy_high = round(support * 1.01, 2)
-        buy_zone = f"{buy_low} - {buy_high}"
-
         stop_loss = round(support * 0.98, 2)
         take_profit = round(resistance * 0.995, 2)
+        buy_zone = f"{support} - {round(support * 1.01, 2)}"
 
-        day_range_pct = round((high - low) / prev_close * 100, 2) if prev_close else 0
-        distance_to_support = round((current - support) / current * 100, 2) if current else 0
-        distance_to_resistance = round((resistance - current) / current * 100, 2) if current else 0
+        distance_to_support = round((current - support) / current * 100, 2)
+        distance_to_resistance = round((resistance - current) / current * 100, 2)
+        intraday_range = round((high - low) / prev_close * 100, 2)
 
         score = 5.0
+        tags = []
 
         if current > open_p:
             score += 1
-            intraday_trend = "日内偏强"
+            tags.append("日内偏强")
         else:
             score -= 0.5
-            intraday_trend = "日内偏弱"
+            tags.append("日内偏弱")
 
-        if data["change_pct"] > 1:
+        if change_pct > 1:
             score += 1
-        elif data["change_pct"] < -1:
+            tags.append("上涨动能较强")
+        elif change_pct < -1:
             score -= 1
+            tags.append("短期情绪偏弱")
+        else:
+            tags.append("震荡区间")
 
         if distance_to_support <= 1:
             score += 1
+            buy_rating = "较好"
             buy_advice = "当前价格接近支撑位，若出现企稳或放量反弹，可考虑小仓位分批试探。"
         elif distance_to_support <= 3:
             score += 0.3
-            buy_advice = "当前价格距离支撑位不远，适合等待回踩确认，不建议直接追高。"
+            buy_rating = "一般"
+            buy_advice = "当前距离支撑位不远，适合等待回踩确认，不建议追高。"
         else:
             score -= 0.5
-            buy_advice = "当前价格距离支撑位较远，短线追高风险较大，建议等待更好的回调位置。"
+            buy_rating = "偏弱"
+            buy_advice = "当前价格距离支撑位较远，追高风险较大，建议等待更好的回调位置。"
 
         if distance_to_resistance <= 1:
             score -= 0.5
+            sell_rating = "较强"
             sell_advice = "当前价格接近压力位，短线可考虑分批止盈或减仓观察。"
         elif distance_to_resistance <= 3:
+            sell_rating = "一般"
             sell_advice = "当前价格距离压力位较近，继续上攻需要成交量配合。"
         else:
+            sell_rating = "偏弱"
             sell_advice = "当前价格距离压力位仍有空间，若趋势延续，可继续观察上攻力度。"
 
-        if day_range_pct > 4:
+        if intraday_range > 4:
             risk = "中-高"
-            volatility = "波动较大"
             score -= 1
-        elif day_range_pct > 2:
+        elif intraday_range > 2:
             risk = "中"
-            volatility = "波动中等"
         else:
             risk = "低-中"
-            volatility = "波动较小"
             score += 0.5
 
         score = max(1, min(10, round(score, 1)))
 
         if score >= 7:
             signal = "观望偏买入"
-            summary = f"{data['name']}当前走势相对较强，价格与支撑位的关系较好。短线可关注是否在{support}附近企稳，若放量反弹，可考虑分批布局；若跌破{stop_loss}附近，则应控制风险。"
+            trend_level = "偏强"
         elif score >= 5:
             signal = "观望"
-            summary = f"{data['name']}目前处于震荡状态，买点和卖点都不算特别明确。建议重点观察支撑位{support}和压力位{resistance}，等待方向进一步确认。"
+            trend_level = "震荡"
         else:
             signal = "谨慎观望"
-            summary = f"{data['name']}短期表现偏弱或波动较大，目前不适合盲目买入。建议等待价格回到支撑位附近并出现企稳信号后再考虑。"
+            trend_level = "偏弱"
+
+        summary = (
+            f"{data['name']}当前趋势为{trend_level}，趋势评分为{score}/10。"
+            f"当前价格为{current}，支撑位在{support}附近，压力位在{resistance}附近。"
+            f"若价格回踩{support}附近并企稳，可作为观察买点；"
+            f"若反弹接近{resistance}附近但无法突破，可考虑减仓或止盈。"
+            f"当前风险等级为{risk}。"
+        )
 
         return jsonify({
             "code": data["code"],
@@ -252,7 +265,7 @@ def trade():
             "open": open_p,
             "prev_close": prev_close,
             "change": data["change"],
-            "change_pct": data["change_pct"],
+            "change_pct": change_pct,
             "high": high,
             "low": low,
             "support": support,
@@ -262,20 +275,20 @@ def trade():
             "take_profit": take_profit,
             "distance_to_support": distance_to_support,
             "distance_to_resistance": distance_to_resistance,
-            "intraday_trend": intraday_trend,
-            "volatility": volatility,
             "signal": signal,
             "score": score,
             "risk": risk,
+            "trend_level": trend_level,
+            "buy_rating": buy_rating,
+            "sell_rating": sell_rating,
             "buy_advice": buy_advice,
             "sell_advice": sell_advice,
+            "tags": tags,
             "summary": summary
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
 def fetch_sina(code):
     if code.startswith("6"):
         symbol = "sh" + code

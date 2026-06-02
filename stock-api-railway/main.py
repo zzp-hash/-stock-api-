@@ -16,7 +16,7 @@ def home():
         <style>
             body {
                 font-family: Arial, sans-serif;
-                max-width: 820px;
+                max-width: 850px;
                 margin: 50px auto;
                 padding: 20px;
                 background: #f5f6f8;
@@ -53,6 +53,7 @@ def home():
             .sell { border-left: 5px solid #dc2626; }
             .signal { border-left: 5px solid #f59e0b; }
             .summary { border-left: 5px solid #2563eb; }
+            .ma { border-left: 5px solid #7c3aed; }
             .small {
                 color: #666;
                 font-size: 14px;
@@ -102,6 +103,25 @@ def home():
                     return;
                 }
 
+                let maBlock = "";
+                if (data.ma20 && data.ma60) {
+                    maBlock = `
+                        <div class="box ma">
+                            <h3>均线趋势分析</h3>
+                            <p><b>MA20：</b>${data.ma20}</p>
+                            <p><b>MA60：</b>${data.ma60}</p>
+                            <p>${data.ma_analysis}</p>
+                        </div>
+                    `;
+                } else {
+                    maBlock = `
+                        <div class="box ma">
+                            <h3>均线趋势分析</h3>
+                            <p>暂时无法获取历史K线数据，当前仅显示日内买卖点分析。</p>
+                        </div>
+                    `;
+                }
+
                 resultDiv.innerHTML = `
                     <h2>${data.name} ${data.code}</h2>
                     <p><b>当前价格：</b>${data.current}</p>
@@ -110,16 +130,19 @@ def home():
                     <p><b>今日最高：</b>${data.high}　<b>今日最低：</b>${data.low}</p>
 
                     <div>
-                        <span class="tag">趋势：${data.intraday_trend}</span>
-                        <span class="tag">波动：${data.volatility}</span>
+                        <span class="tag">趋势：${data.trend_level}</span>
                         <span class="tag">风险：${data.risk}</span>
+                        <span class="tag">信号：${data.signal}</span>
                     </div>
+
+                    ${maBlock}
 
                     <div class="box buy">
                         <h3>买点判断</h3>
                         <p><b>支撑位：</b>${data.support}</p>
                         <p><b>理想买入区间：</b>${data.buy_zone}</p>
                         <p><b>止损位：</b>${data.stop_loss}</p>
+                        <p><b>买入评级：</b>${data.buy_rating}</p>
                         <p>${data.buy_advice}</p>
                     </div>
 
@@ -127,6 +150,7 @@ def home():
                         <h3>卖点判断</h3>
                         <p><b>压力位：</b>${data.resistance}</p>
                         <p><b>止盈参考位：</b>${data.take_profit}</p>
+                        <p><b>卖出评级：</b>${data.sell_rating}</p>
                         <p>${data.sell_advice}</p>
                     </div>
 
@@ -189,32 +213,25 @@ def trade():
         intraday_range = round((high - low) / prev_close * 100, 2)
 
         score = 5.0
-        tags = []
 
         if current > open_p:
             score += 1
-            tags.append("日内偏强")
         else:
             score -= 0.5
-            tags.append("日内偏弱")
 
         if change_pct > 1:
             score += 1
-            tags.append("上涨动能较强")
         elif change_pct < -1:
             score -= 1
-            tags.append("短期情绪偏弱")
-        else:
-            tags.append("震荡区间")
 
         if distance_to_support <= 1:
             score += 1
             buy_rating = "较好"
-            buy_advice = "当前价格接近支撑位，若出现企稳或放量反弹，可考虑小仓位分批试探。"
+            buy_advice = "当前价格接近支撑位，若出现企稳或放量反弹，可考虑小仓位分批观察。"
         elif distance_to_support <= 3:
             score += 0.3
             buy_rating = "一般"
-            buy_advice = "当前距离支撑位不远，适合等待回踩确认，不建议追高。"
+            buy_advice = "当前距离支撑位不远，适合等待回踩确认，不建议直接追高。"
         else:
             score -= 0.5
             buy_rating = "偏弱"
@@ -240,6 +257,34 @@ def trade():
             risk = "低-中"
             score += 0.5
 
+        ma_analysis = "暂时无法获取均线数据。"
+        if ma_data:
+            ma20 = ma_data["ma20"]
+            ma60 = ma_data["ma60"]
+
+            if current > ma20:
+                score += 0.8
+                price_ma20 = "当前价格高于MA20，短期趋势偏强。"
+            else:
+                score -= 0.8
+                price_ma20 = "当前价格低于MA20，短期趋势偏弱。"
+
+            if current > ma60:
+                score += 0.8
+                price_ma60 = "当前价格高于MA60，中期趋势偏强。"
+            else:
+                score -= 0.8
+                price_ma60 = "当前价格低于MA60，中期趋势偏弱。"
+
+            if ma20 > ma60:
+                score += 0.8
+                ma_cross = "MA20高于MA60，均线结构偏多。"
+            else:
+                score -= 0.8
+                ma_cross = "MA20低于MA60，均线结构偏弱。"
+
+            ma_analysis = price_ma20 + " " + price_ma60 + " " + ma_cross
+
         score = max(1, min(10, round(score, 1)))
 
         if score >= 7:
@@ -255,8 +300,9 @@ def trade():
         summary = (
             f"{data['name']}当前趋势为{trend_level}，趋势评分为{score}/10。"
             f"当前价格为{current}，支撑位在{support}附近，压力位在{resistance}附近。"
-            f"若价格回踩{support}附近并企稳，可作为观察买点；"
-            f"若反弹接近{resistance}附近但无法突破，可考虑减仓或止盈。"
+            f"{ma_analysis}"
+            f" 若价格回踩支撑位或MA20附近并企稳，可作为观察买点；"
+            f"若反弹接近压力位附近但无法突破，可考虑减仓或止盈。"
             f"当前风险等级为{risk}。"
         )
 
@@ -266,6 +312,7 @@ def trade():
             "current": current,
             "ma20": ma_data["ma20"] if ma_data else None,
             "ma60": ma_data["ma60"] if ma_data else None,
+            "ma_analysis": ma_analysis,
             "open": open_p,
             "prev_close": prev_close,
             "change": data["change"],
@@ -287,13 +334,14 @@ def trade():
             "sell_rating": sell_rating,
             "buy_advice": buy_advice,
             "sell_advice": sell_advice,
-            "tags": tags,
             "summary": summary
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-        def get_ma_data(code):
+
+
+def get_ma_data(code):
     try:
         ticker = code + ".SS" if code.startswith("6") else code + ".SZ"
 
@@ -304,11 +352,12 @@ def trade():
             auto_adjust=True
         )
 
-        if len(df) < 60:
+        if df is None or df.empty or len(df) < 60:
             return None
 
-        ma20 = round(df["Close"].rolling(20).mean().iloc[-1], 2)
-        ma60 = round(df["Close"].rolling(60).mean().iloc[-1], 2)
+        close = df["Close"]
+        ma20 = round(float(close.rolling(20).mean().iloc[-1]), 2)
+        ma60 = round(float(close.rolling(60).mean().iloc[-1]), 2)
 
         return {
             "ma20": ma20,
@@ -317,6 +366,8 @@ def trade():
 
     except Exception:
         return None
+
+
 def fetch_sina(code):
     if code.startswith("6"):
         symbol = "sh" + code

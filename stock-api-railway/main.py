@@ -13,9 +13,10 @@ def home():
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>AI股票买卖点分析助手 V8</title>
+        <title>AI股票买卖点分析助手 V9</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
-            body { font-family: Arial, sans-serif; max-width: 980px; margin: 50px auto; padding: 20px; background: #f5f6f8; }
+            body { font-family: Arial, sans-serif; max-width: 1050px; margin: 50px auto; padding: 20px; background: #f5f6f8; }
             .card { background: white; padding: 30px; border-radius: 18px; box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
             input { padding: 12px; font-size: 16px; width: 220px; border: 1px solid #ccc; border-radius: 8px; }
             button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #111827; color: white; cursor: pointer; }
@@ -27,13 +28,14 @@ def home():
             .sell { border-left: 5px solid #dc2626; }
             .signal { border-left: 5px solid #f59e0b; }
             .summary { border-left: 5px solid #2563eb; }
+            .chart { border-left: 5px solid #111827; }
             .small { color: #666; font-size: 14px; margin-top: 25px; }
             .tag { display: inline-block; padding: 6px 10px; background: #eef2ff; border-radius: 999px; margin-right: 8px; margin-top: 6px; }
         </style>
     </head>
     <body>
         <div class="card">
-            <h1>AI股票买卖点分析助手 V8</h1>
+            <h1>AI股票买卖点分析助手 V9</h1>
             <p>输入A股代码，例如：600519、300750、000001</p>
             <input id="code" placeholder="输入股票代码" onkeydown="if(event.key==='Enter')analyze()">
             <button onclick="analyze()">分析</button>
@@ -41,6 +43,7 @@ def home():
             <p class="small">提示：本工具仅用于学习和技术分析展示，不构成投资建议。</p>
         </div>
         <script>
+            let priceChart = null;
             async function analyze() {
                 const code = document.getElementById("code").value.trim();
                 const resultDiv = document.getElementById("result");
@@ -66,6 +69,10 @@ def home():
                             <p><b>综合得分：</b>${data.score100}/100</p>
                             <p><b>技术面：</b>${data.tech_score}/100　<b>趋势面：</b>${data.trend_score}/100　<b>风险面：</b>${data.risk_score}/100</p>
                         </div>
+                        <div class="box chart">
+                            <h3>K线趋势图（收盘价 + MA20 / MA60 / MA89）</h3>
+                            <canvas id="priceChart" height="120"></canvas>
+                        </div>
                         <div class="box ma">
                             <h3>均线、MACD 与 KDJ 分析</h3>
                             <p><b>MA20：</b>${data.ma20}　<b>MA60：</b>${data.ma60}　<b>MA89：</b>${data.ma89}</p>
@@ -76,9 +83,13 @@ def home():
                             <p>${data.kdj_analysis}</p>
                         </div>
                         <div class="box extra">
-                            <h3>RSI与成交量分析</h3>
+                            <h3>RSI、成交量、布林带与波动率</h3>
                             <p><b>RSI(14)：</b>${data.rsi}　${data.rsi_analysis}</p>
                             <p><b>成交量：</b>${data.volume_signal} — ${data.volume_analysis}</p>
+                            <p><b>布林上轨：</b>${data.bb_upper}　<b>中轨：</b>${data.bb_middle}　<b>下轨：</b>${data.bb_lower}</p>
+                            <p>${data.bollinger_text}</p>
+                            <p><b>ATR：</b>${data.atr}　<b>波动率：</b>${data.volatility}</p>
+                            <p><b>均线交叉：</b>${data.cross_signal}</p>
                         </div>
                         <div class="box buy">
                             <h3>📗 买点判断</h3>
@@ -101,9 +112,34 @@ def home():
                             <h3>综合总结</h3>
                             <p>${data.summary}</p>
                         </div>`;
+                    drawChart(data.chart);
                 } catch(e) {
                     resultDiv.innerHTML = "请求失败，请刷新后重试：" + e.message;
                 }
+            }
+            function drawChart(chartData) {
+                const ctx = document.getElementById("priceChart");
+                if (priceChart) priceChart.destroy();
+                priceChart = new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: chartData.dates,
+                        datasets: [
+                            { label: "收盘价", data: chartData.close, borderColor: "#111827", borderWidth: 2, pointRadius: 0 },
+                            { label: "MA20",  data: chartData.ma20,  borderColor: "#f97316", borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+                            { label: "MA60",  data: chartData.ma60,  borderColor: "#7c3aed", borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+                            { label: "MA89",  data: chartData.ma89,  borderColor: "#0ea5e9", borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: true } },
+                        scales: {
+                            x: { ticks: { maxTicksLimit: 8 } },
+                            y: { beginAtZero: false }
+                        }
+                    }
+                });
             }
         </script>
     </body>
@@ -126,8 +162,7 @@ def analyze():
         except Exception:
             pass
 
-        latest = hist[-1]
-        prev   = hist[-2]
+        latest = hist[-1]; prev = hist[-2]
         if quote and quote.get("current", 0) > 0:
             name = quote["name"]; current = quote["current"]
             change = quote["change"]; change_pct = quote["change_pct"]
@@ -147,10 +182,22 @@ def analyze():
         ma60 = round(sum(closes[-60:]) / 60, 2)
         ma89 = round(sum(closes[-89:]) / 89, 2)
 
-        dif, dea, macd_val             = calc_macd(closes)
-        rsi                             = calc_rsi(closes)
-        k, d, j                         = calc_kdj(hist)
-        volume_signal, volume_analysis  = calc_volume_signal(volumes)
+        dif, dea, macd_val            = calc_macd(closes)
+        rsi                            = calc_rsi(closes)
+        k, d, j                        = calc_kdj(hist)
+        volume_signal, volume_analysis = calc_volume_signal(volumes)
+        bb_upper, bb_middle, bb_lower  = calc_bollinger(closes)
+        atr                            = calc_atr(hist)
+        cross_signal                   = check_cross(ma20, ma60)
+
+        if current >= bb_upper:
+            bollinger_text = "当前价格接近或突破布林上轨，短线偏热，注意回调风险。"
+        elif current <= bb_lower:
+            bollinger_text = "当前价格接近或跌破布林下轨，可能存在超跌反弹机会。"
+        else:
+            bollinger_text = "当前价格位于布林带中部，暂未出现极端波动信号。"
+
+        volatility = "低波动" if atr < current * 0.02 else ("中波动" if atr < current * 0.05 else "高波动")
 
         support     = round(min(lows), 2)
         resistance  = round(max(highs), 2)
@@ -201,16 +248,11 @@ def analyze():
         else:
             kdj_analysis = "KDJ处于中性状态，暂无极端信号。"
 
-        if k > d and j > k:
-            kdj_signal = "KDJ短线偏强"
-        elif k < d and j < k:
-            kdj_signal = "KDJ短线偏弱"
-        elif j >= 90:
-            kdj_signal = "KDJ超买警惕回调"
-        elif j <= 10:
-            kdj_signal = "KDJ超卖关注反弹"
-        else:
-            kdj_signal = "KDJ中性观察"
+        if k > d and j > k:   kdj_signal = "KDJ短线偏强"
+        elif k < d and j < k: kdj_signal = "KDJ短线偏弱"
+        elif j >= 90:         kdj_signal = "KDJ超买警惕回调"
+        elif j <= 10:         kdj_signal = "KDJ超卖关注反弹"
+        else:                 kdj_signal = "KDJ中性观察"
 
         if volume_signal == "放量":   score += 0.3
         elif volume_signal == "缩量": score -= 0.2
@@ -227,19 +269,14 @@ def analyze():
         else:
             sell_advice = f"距压力位约{round(dist_res,1)}%空间，可观察突破力度。"
 
-        risk_reward_ratio = round(max(take_profit - current, 0.01) / max(current - stop_loss, 0.01), 2)
-
+        risk_reward_ratio = round(max(take_profit-current,0.01) / max(current-stop_loss,0.01), 2)
         score    = max(1, min(10, round(score, 1)))
         score100 = int(round(score * 10))
 
-        if score >= 8:
-            position_advice = "建议仓位：60%-70%"
-        elif score >= 7:
-            position_advice = "建议仓位：40%-50%"
-        elif score >= 5:
-            position_advice = "建议仓位：20%-30%"
-        else:
-            position_advice = "建议仓位：0%-10%，以观察为主"
+        if score >= 8:   position_advice = "建议仓位：60%-70%"
+        elif score >= 7: position_advice = "建议仓位：40%-50%"
+        elif score >= 5: position_advice = "建议仓位：20%-30%"
+        else:            position_advice = "建议仓位：0%-10%，以观察为主"
 
         if score >= 7:
             signal = "📈 偏向买入"; trend_level = "偏强"; risk = "低-中"
@@ -253,12 +290,16 @@ def analyze():
             current, ma20, ma60, ma89, dif, dea, macd_val, rsi)
 
         tech_analysis = "；".join(tech_notes) + "。"
+        chart = make_chart_data(hist)
+
         summary = (
             f"{name}当前趋势{trend_level}，综合评分{score100}/100。"
             f"当前价¥{current}，MA20={ma20}，MA60={ma60}，MA89={ma89}。"
             f"{tech_analysis}"
             f"RSI={rsi}，{rsi_analysis}。"
             f"KDJ：K={k}，D={d}，J={j}，{kdj_analysis}"
+            f"布林带：上轨{bb_upper}，中轨{bb_middle}，下轨{bb_lower}，{bollinger_text}"
+            f"ATR={atr}，当前属于{volatility}。"
             f"成交量{volume_signal}，{volume_analysis}"
             f"支撑位¥{support}，压力位¥{resistance}。"
             f"盈亏比约为{risk_reward_ratio}:1。"
@@ -273,6 +314,9 @@ def analyze():
             "rsi": rsi, "rsi_analysis": rsi_analysis,
             "k": k, "d": d, "j": j, "kdj_analysis": kdj_analysis, "kdj_signal": kdj_signal,
             "volume_signal": volume_signal, "volume_analysis": volume_analysis,
+            "bb_upper": bb_upper, "bb_middle": bb_middle, "bb_lower": bb_lower,
+            "bollinger_text": bollinger_text, "atr": atr, "volatility": volatility,
+            "cross_signal": cross_signal,
             "support": support, "resistance": resistance,
             "buy_zone": buy_zone, "stop_loss": stop_loss, "take_profit": take_profit,
             "risk_reward_ratio": risk_reward_ratio,
@@ -281,7 +325,7 @@ def analyze():
             "signal": signal, "trend_level": trend_level, "risk": risk,
             "position_advice": position_advice,
             "tech_analysis": tech_analysis, "buy_advice": buy_advice,
-            "sell_advice": sell_advice, "summary": summary
+            "sell_advice": sell_advice, "summary": summary, "chart": chart
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -345,8 +389,8 @@ def fetch_yahoo_hist(code):
     for i, ts in enumerate(chart["timestamp"]):
         o,c,h,l,v = ohlcv["open"][i],ohlcv["close"][i],ohlcv["high"][i],ohlcv["low"][i],ohlcv["volume"][i]
         if None in (o,c,h,l): continue
-        result.append({"date":str(ts),"open":round(o,2),"close":round(c,2),
-                       "high":round(h,2),"low":round(l,2),"volume":v or 0})
+        result.append({"date": str(ts), "open": round(o,2), "close": round(c,2),
+                       "high": round(h,2), "low": round(l,2), "volume": v or 0})
     if not result: raise ValueError("Yahoo数据为空")
     return result
 
@@ -421,6 +465,23 @@ def calc_volume_signal(volumes):
     if ratio<=0.7: return "缩量","近5日成交量低于均量，市场参与度偏弱。"
     return "正常","成交量处于正常区间，市场活跃度一般。"
 
+def calc_bollinger(closes, period=20):
+    ma = sum(closes[-period:])/period
+    std = (sum((x-ma)**2 for x in closes[-period:])/period)**0.5
+    return round(ma+2*std,2), round(ma,2), round(ma-2*std,2)
+
+def calc_atr(hist, period=14):
+    trs = []
+    for i in range(1,len(hist)):
+        h=hist[i]["high"]; l=hist[i]["low"]; pc=hist[i-1]["close"]
+        trs.append(max(h-l, abs(h-pc), abs(l-pc)))
+    return round(sum(trs[-period:])/period, 2)
+
+def check_cross(ma20, ma60):
+    if ma20>ma60:   return "黄金交叉区域（多头）"
+    if ma20<ma60:   return "死亡交叉区域（空头）"
+    return "均线重合"
+
 def make_star_rating(s):
     if s>=85: return "★★★★★"
     if s>=70: return "★★★★☆"
@@ -444,6 +505,22 @@ def make_sub_scores(current, ma20, ma60, ma89, dif, dea, macd_val, rsi):
     elif rsi>=75 or rsi<=25: risk-=20
     elif rsi>=70 or rsi<=30: risk-=10
     return max(1,min(100,int(tech))), max(1,min(100,int(trend))), max(1,min(100,int(risk)))
+
+def rolling_ma(values, period):
+    result = []
+    for i in range(len(values)):
+        if i+1 < period: result.append(None)
+        else: result.append(round(sum(values[i+1-period:i+1])/period, 2))
+    return result
+
+def make_chart_data(hist):
+    recent = hist[-120:]
+    closes = [x["close"] for x in recent]
+    dates  = [x["date"][-5:] if "-" in str(x["date"]) else str(x["date"]) for x in recent]
+    return {"dates": dates, "close": closes,
+            "ma20": rolling_ma(closes,20),
+            "ma60": rolling_ma(closes,60),
+            "ma89": rolling_ma(closes,89)}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
